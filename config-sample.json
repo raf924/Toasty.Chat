@@ -5,7 +5,13 @@
     "mods": [
       "add-mod-tripcodes-here"
     ],
-    "salt": "insert-randomly-generated-string-here"
+    "salt": "insert-randomly-generated-string-here",
+    "proxy": {
+      "localPath": "/tmp/images",
+      "path": "images",
+      "domain": "chat.toastystoemp.com",
+      "censorOnError": false
+    }
   },
   "webSocketServer": {
     "enabled": true,

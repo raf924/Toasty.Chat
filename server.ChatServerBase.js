@@ -4,6 +4,12 @@
 var crypto = require('crypto');
 var tor = require('tor-exits');
 var triplist = require("./data/trips.json");
+var request = require("request");
+request.sync = require("sync-request");
+var URL = require("url");
+var fs = require("fs");
+var util = require("util");
+var EventEmitter = require("events");
 
 // Keeps multiple connections for a client
 function MetaClient() {
@@ -33,6 +39,9 @@ function ChatServerBase() {
     this.bot = new (require('./bot.js'))(this);
     this.bot.restrictCommandToChannels('ascii', ['ascii']);
 }
+
+util.inherits(ChatServerBase, EventEmitter);
+
 module.exports = function () {
     return new ChatServerBase();
 };
@@ -41,8 +50,9 @@ ChatServerBase.prototype.initialize = function (config, version, POLICE) {
     that.POLICE = POLICE;
     that.config = config;
     that.version = version;
+    that.nodes = [];
     tor.fetch(function (err, data) {
-        if (err) return console.error(err);
+        if (err) return console.error("Tor", err);
         that.nodes = tor.parse(data);
     });
 };
@@ -273,6 +283,8 @@ ChatServerBase.prototype.handleCommand = function (command, client, args) {
                 return;
             }
 
+            text = this.parseForImages(text);
+
             var data = {
                 cmd: 'chat',
                 nick: client.nick,
@@ -422,9 +434,9 @@ ChatServerBase.prototype.handleCommand = function (command, client, args) {
 
                 //Ban the client
                 badClient.clients.forEach(function (c) {
-                  c.send(null, {cmd: 'dataSet', bSet: true});
-                  c.send(null, {cmd: 'close'});
-                  self.POLICE.arrest(c.getIpAddress(), args.time);
+                    c.send(null, {cmd: 'dataSet', bSet: true});
+                    c.send(null, {cmd: 'close'});
+                    self.POLICE.arrest(c.getIpAddress(), args.time);
                 });
                 return;
             case 'mute':
@@ -484,4 +496,46 @@ ChatServerBase.prototype.handleCommand = function (command, client, args) {
                 return;
         }
     }
+};
+
+ChatServerBase.prototype.parseForImages = function (text) {
+    var that = this;
+    var urlReg = /(\s|^)(http(|s):\/\/([^\s])+)/g;
+    var imgReg = /image\/.*/i;
+    if (urlReg.test(text)) {
+        var urls = text.match(urlReg);
+        urls.forEach(function (url) {
+            try {
+                var res = request.sync("HEAD", url);
+                if (imgReg.test(res.headers["content-type"])) {
+                    var urlObject = URL.parse(url);
+                    var filename = that.config.proxy.localPath + "/" + urlObject.hostname + urlObject.pathname.replace("/", "_") + new Date().getTime();
+                    var newUrl = URL.format({
+                        "protocol": "https",
+                        "host": that.config.proxy.domain,
+                        "pathname": filename
+                    });
+                    text = text.replace(url, newUrl);
+                    request(url).on("response", function (res) {
+                        if (res.statusCode == 200 && imgReg.test(res.headers["content-type"])) {
+                            this.pipe(fs.createWriteStream(filename)).on("close", function () {
+                                setTimeout(function () {
+                                    fs.unlink(filename, function () {
+
+                                    });
+                                }, that.config.proxy.duration * 3600 * 1000);
+
+                            });
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error("Proxy", e);
+                if (that.config.proxy.censorOnError) {
+                    text = text.replace(url, "[Censored]");
+                }
+            }
+        });
+    }
+    return text;
 };

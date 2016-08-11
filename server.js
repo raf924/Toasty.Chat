@@ -50,6 +50,7 @@ function main() {
     if (config.webSocketServer && config.webSocketServer.enabled && config.client && config.client.enabled) {
         var client = require("./server.client.js")();
         config.client.socketPort = config.webSocketServer.port;
+        config.client.proxy = config.base.proxy;
         client.initialize(config.client);
         client.run();
     }
